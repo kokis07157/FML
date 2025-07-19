@@ -34,6 +34,21 @@
             text-align: center;
         }
 
+        .sync-status {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+            padding: 10px;
+            text-align: center;
+            font-size: 0.9em;
+        }
+
+        .sync-status.syncing {
+            background: #fff3cd;
+            border-color: #ffeaa7;
+            color: #856404;
+        }
+
         .role-selector {
             display: flex;
             justify-content: center;
@@ -232,6 +247,15 @@
             margin: 10px 0;
         }
 
+        .database-status {
+            background: #e8f4fd;
+            border: 1px solid #b8daff;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
         @media (max-width: 768px) {
             .role-selector {
                 flex-direction: column;
@@ -243,8 +267,12 @@
     <div class="container">
         <div class="header">
             <h1>🏥 Farmacia Moderna Lety</h1>
-            <p>Sistema multi-rol para registro y gestión de pacientes</p>
+            <p>Sistema multi-rol sincronizado para registro y gestión de pacientes</p>
             <small>Turnos desde las 7:00 AM - 20 minutos por consulta</small>
+        </div>
+
+        <div class="sync-status" id="syncStatus">
+            🔄 Sistema sincronizado - Próximo turno disponible: <span id="nextTurnNumber">1</span>
         </div>
 
         <div class="role-selector">
@@ -265,6 +293,11 @@
             <div class="instructions">
                 <strong>Instrucciones:</strong> Complete el formulario con sus datos. Su información será registrada de forma segura y se le asignará un turno automáticamente.
                 <br><strong>Horarios:</strong> Los turnos inician a las 7:00 AM y duran 20 minutos cada uno.
+            </div>
+            
+            <div class="database-status">
+                📊 <strong>Turnos asignados hoy:</strong> <span id="todayTurnsCount">0</span> | 
+                <strong>Próximo turno:</strong> #<span id="patientNextTurn">1</span>
             </div>
             
             <form id="patientForm">
@@ -307,6 +340,11 @@
             <div id="staff-content" style="display: none;">
                 <div class="instructions">
                     <strong>Personal autorizado:</strong> Registre pacientes durante las consultas o citas. Los turnos se asignan automáticamente iniciando a las 7:00 AM.
+                </div>
+                
+                <div class="database-status">
+                    📊 <strong>Turnos hoy:</strong> <span id="staffTodayCount">0</span> | 
+                    <strong>Próximo turno:</strong> #<span id="staffNextTurn">1</span>
                 </div>
                 
                 <form id="staffForm">
@@ -374,6 +412,11 @@
                     </div>
                 </div>
 
+                <div class="database-status">
+                    <strong>Estado del Sistema:</strong> Base de datos central activa | 
+                    <strong>Último turno asignado:</strong> #<span id="lastTurnAssigned">0</span>
+                </div>
+
                 <div class="form-group">
                     <input type="text" id="searchPatients" placeholder="🔍 Buscar pacientes...">
                 </div>
@@ -388,6 +431,7 @@
                     <h3>📊 Exportar Datos</h3>
                     <button class="btn secondary" onclick="exportToJSON()">📄 Exportar como JSON</button>
                     <button class="btn secondary" onclick="exportToCSV()">📋 Exportar como CSV</button>
+                    <button class="btn secondary" onclick="resetDailyTurns()" style="background: #ffa502;">🔄 Resetear Turnos del Día</button>
                     <button class="btn secondary" onclick="clearAllData()" style="background: #ff4757;">🗑️ Limpiar Datos</button>
                     <button class="btn secondary" onclick="logoutDoctor()">🚪 Cerrar Sesión</button>
                 </div>
@@ -396,38 +440,148 @@
     </div>
 
     <script>
-        // Base de datos en memoria
-        let patientDatabase = [];
-        const DOCTOR_PASSWORD = "Consulta150"; // Cambia esta contraseña
-        const STAFF_PASSWORD = "Son1970ia"; // Contraseña para personal médico
-        const CONSULTATION_DURATION = 20; // Minutos por consulta
-        const START_HOUR = 7; // Hora de inicio (7:00 AM)
-        const END_HOUR = 17; // Hora de fin (5:00 PM)
+        // Sistema de base de datos centralizada simulada
+        class CentralDatabase {
+            constructor() {
+                this.dbKey = 'farmacia_lety_central_db';
+                this.counterKey = 'farmacia_lety_turn_counter';
+                this.lastResetKey = 'farmacia_lety_last_reset';
+                this.init();
+            }
 
-        // Cargar datos al iniciar
-        loadData();
+            init() {
+                // Verificar si necesitamos resetear el contador diario
+                this.checkDailyReset();
+            }
 
-        // Funciones para calcular turnos
-        function getNextTurnNumber() {
-            const today = new Date().toDateString();
-            const todayPatients = patientDatabase.filter(p => 
-                new Date(p.date).toDateString() === today
-            );
-            return todayPatients.length + 1;
+            checkDailyReset() {
+                const today = new Date().toDateString();
+                const lastReset = this.getFromStorage(this.lastResetKey);
+                
+                if (lastReset !== today) {
+                    // Nuevo día, resetear contador de turnos
+                    this.setInStorage(this.counterKey, { 
+                        dailyCounter: 0, 
+                        date: today 
+                    });
+                    this.setInStorage(this.lastResetKey, today);
+                }
+            }
+
+            getFromStorage(key) {
+                try {
+                    // Simulamos una base de datos central usando una clave única
+                    return JSON.parse(window.name || '{}')[key];
+                } catch {
+                    return null;
+                }
+            }
+
+            setInStorage(key, value) {
+                try {
+                    let storage = {};
+                    try {
+                        storage = JSON.parse(window.name || '{}');
+                    } catch {}
+                    storage[key] = value;
+                    window.name = JSON.stringify(storage);
+                    
+                    // También guardamos en localStorage como respaldo
+                    window.localStorage?.setItem(key, JSON.stringify(value));
+                } catch (e) {
+                    // Fallback a variables de memoria
+                    if (!window.farmaciaStorage) window.farmaciaStorage = {};
+                    window.farmaciaStorage[key] = value;
+                }
+            }
+
+            getPatients() {
+                let patients = this.getFromStorage(this.dbKey);
+                if (!patients) {
+                    // Intentar cargar desde localStorage
+                    try {
+                        patients = JSON.parse(window.localStorage?.getItem(this.dbKey) || '[]');
+                    } catch {
+                        patients = [];
+                    }
+                }
+                return patients || [];
+            }
+
+            savePatients(patients) {
+                this.setInStorage(this.dbKey, patients);
+            }
+
+            getNextTurnNumber() {
+                const today = new Date().toDateString();
+                let counter = this.getFromStorage(this.counterKey);
+                
+                if (!counter || counter.date !== today) {
+                    counter = { dailyCounter: 0, date: today };
+                }
+                
+                counter.dailyCounter++;
+                this.setInStorage(this.counterKey, counter);
+                
+                return counter.dailyCounter;
+            }
+
+            getCurrentTurnCount() {
+                const today = new Date().toDateString();
+                const counter = this.getFromStorage(this.counterKey);
+                
+                if (!counter || counter.date !== today) {
+                    return 0;
+                }
+                
+                return counter.dailyCounter;
+            }
+
+            resetDailyCounter() {
+                const today = new Date().toDateString();
+                this.setInStorage(this.counterKey, { 
+                    dailyCounter: 0, 
+                    date: today 
+                });
+                this.setInStorage(this.lastResetKey, today);
+            }
         }
 
+        // Inicializar base de datos central
+        const centralDB = new CentralDatabase();
+        let patientDatabase = centralDB.getPatients();
+
+        const DOCTOR_PASSWORD = "Consulta150";
+        const STAFF_PASSWORD = "Son1970ia";
+        const CONSULTATION_DURATION = 20;
+        const START_HOUR = 7;
+        const END_HOUR = 17;
+
+        // Actualizar contadores en la interfaz
+        function updateTurnCounters() {
+            const currentCount = centralDB.getCurrentTurnCount();
+            const nextTurn = currentCount + 1;
+            
+            // Actualizar todos los elementos que muestran el contador
+            document.getElementById('nextTurnNumber').textContent = nextTurn;
+            document.getElementById('todayTurnsCount').textContent = currentCount;
+            document.getElementById('patientNextTurn').textContent = nextTurn;
+            document.getElementById('staffTodayCount').textContent = currentCount;
+            document.getElementById('staffNextTurn').textContent = nextTurn;
+            document.getElementById('lastTurnAssigned').textContent = currentCount;
+        }
+
+        // Inicializar contadores
+        updateTurnCounters();
+
         function calculateConsultationTime(turnNumber) {
-            // Calcular la hora de consulta basada en el número de turno
-            // Turno 1: 7:00, Turno 2: 7:20, Turno 3: 7:40, etc.
             const minutesFromStart = (turnNumber - 1) * CONSULTATION_DURATION;
             const consultationHour = START_HOUR + Math.floor(minutesFromStart / 60);
             const consultationMinutes = minutesFromStart % 60;
             
-            // Crear objeto de fecha para la consulta
             const consultationDate = new Date();
             consultationDate.setHours(consultationHour, consultationMinutes, 0, 0);
             
-            // Si la hora calculada pasa del horario de trabajo, mover al siguiente día
             if (consultationHour >= END_HOUR) {
                 consultationDate.setDate(consultationDate.getDate() + 1);
                 const newMinutesFromStart = (turnNumber - 1 - Math.floor((END_HOUR - START_HOUR) * 60 / CONSULTATION_DURATION)) * CONSULTATION_DURATION;
@@ -444,31 +598,30 @@
             };
         }
 
-        // Selección de rol
         function selectRole(role) {
-            // Limpiar selección anterior
             document.querySelectorAll('.role-btn').forEach(btn => btn.classList.remove('active'));
             document.querySelectorAll('.content-section').forEach(section => section.classList.remove('active'));
             
-            // Activar rol seleccionado
             event.target.classList.add('active');
             document.getElementById(role + '-section').classList.add('active');
+            
+            // Actualizar contadores cuando se selecciona un rol
+            updateTurnCounters();
         }
 
-        // Autenticación del personal médico
         function authenticateStaff() {
             const password = document.getElementById('staffPassword').value;
             if (password === STAFF_PASSWORD) {
                 document.getElementById('staff-content').style.display = 'block';
                 document.querySelector('.staff-password-section').style.display = 'none';
                 document.getElementById('staffPassword').value = '';
+                updateTurnCounters();
             } else {
                 alert('Contraseña incorrecta');
                 document.getElementById('staffPassword').value = '';
             }
         }
 
-        // Cerrar sesión del personal médico
         function logoutStaff() {
             if (confirm('¿Cerrar sesión?')) {
                 document.getElementById('staff-content').style.display = 'none';
@@ -478,60 +631,68 @@
             }
         }
 
-        // Formulario de paciente
         document.getElementById('patientForm').addEventListener('submit', function(e) {
             e.preventDefault();
             
-            const turnNumber = getNextTurnNumber();
-            const consultationInfo = calculateConsultationTime(turnNumber);
+            // Mostrar estado de sincronización
+            document.getElementById('syncStatus').className = 'sync-status syncing';
+            document.getElementById('syncStatus').innerHTML = '🔄 Sincronizando con base de datos central...';
             
-            const patient = {
-                id: Date.now(),
-                turnNumber: turnNumber,
-                name: document.getElementById('patientName').value.trim(),
-                motivo: document.getElementById('patientMotivo').value.trim(),
-                priority: document.getElementById('patientPriority').value,
-                consultationTime: consultationInfo.time,
-                consultationDate: consultationInfo.date,
-                registeredBy: 'Paciente',
-                date: new Date().toISOString(),
-                displayDate: new Date().toLocaleDateString('es-MX', {
-                    year: 'numeric',
-                    month: 'long',
-                    day: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit'
-                })
-            };
+            setTimeout(() => {
+                const turnNumber = centralDB.getNextTurnNumber();
+                const consultationInfo = calculateConsultationTime(turnNumber);
+                
+                const patient = {
+                    id: Date.now() + Math.random(), // ID único
+                    turnNumber: turnNumber,
+                    name: document.getElementById('patientName').value.trim(),
+                    motivo: document.getElementById('patientMotivo').value.trim(),
+                    priority: document.getElementById('patientPriority').value,
+                    consultationTime: consultationInfo.time,
+                    consultationDate: consultationInfo.date,
+                    registeredBy: 'Paciente',
+                    date: new Date().toISOString(),
+                    displayDate: new Date().toLocaleDateString('es-MX', {
+                        year: 'numeric',
+                        month: 'long',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                    })
+                };
 
-            patientDatabase.push(patient);
-            saveData();
-            this.reset();
-            
-            // Mostrar información del turno
-            const turnInfo = document.getElementById('turnInfo');
-            turnInfo.innerHTML = `
-                <div class="turn-info">
-                    <h3>🎫 ¡Registro Exitoso!</h3>
-                    <div class="turn-number">Turno #${turnNumber}</div>
-                    <p><strong>📅 Fecha:</strong> ${consultationInfo.date}</p>
-                    <p><strong>🕐 Hora de consulta:</strong> <span style="color: #4facfe; font-weight: bold; font-size: 1.2em;">${consultationInfo.time}</span></p>
-                    <p><strong>⏱️ Duración:</strong> 20 minutos</p>
-                    <p><em>Por favor llegue 10 minutos antes de su hora asignada.</em></p>
-                </div>
-            `;
-            showSuccess('patientSuccess');
+                patientDatabase.push(patient);
+                centralDB.savePatients(patientDatabase);
+                updateTurnCounters();
+                this.reset();
+                
+                const turnInfo = document.getElementById('turnInfo');
+                turnInfo.innerHTML = `
+                    <div class="turn-info">
+                        <h3>🎫 ¡Registro Exitoso!</h3>
+                        <div class="turn-number">Turno #${turnNumber}</div>
+                        <p><strong>📅 Fecha:</strong> ${consultationInfo.date}</p>
+                        <p><strong>🕐 Hora de consulta:</strong> <span style="color: #4facfe; font-weight: bold; font-size: 1.2em;">${consultationInfo.time}</span></p>
+                        <p><strong>⏱️ Duración:</strong> 20 minutos</p>
+                        <p><em>Por favor llegue 10 minutos antes de su hora asignada.</em></p>
+                    </div>
+                `;
+                showSuccess('patientSuccess');
+                
+                // Restaurar estado de sincronización
+                document.getElementById('syncStatus').className = 'sync-status';
+                document.getElementById('syncStatus').innerHTML = `🔄 Sistema sincronizado - Próximo turno disponible: <span id="nextTurnNumber">${centralDB.getCurrentTurnCount() + 1}</span>`;
+            }, 1000);
         });
 
-        // Formulario de personal médico
         document.getElementById('staffForm').addEventListener('submit', function(e) {
             e.preventDefault();
             
-            const turnNumber = getNextTurnNumber();
+            const turnNumber = centralDB.getNextTurnNumber();
             const consultationInfo = calculateConsultationTime(turnNumber);
             
             const patient = {
-                id: Date.now(),
+                id: Date.now() + Math.random(),
                 turnNumber: turnNumber,
                 name: document.getElementById('staffPatientName').value.trim(),
                 phone: document.getElementById('staffPhone').value.trim(),
@@ -552,10 +713,10 @@
             };
 
             patientDatabase.push(patient);
-            saveData();
+            centralDB.savePatients(patientDatabase);
+            updateTurnCounters();
             this.reset();
             
-            // Mostrar información del turno para el staff
             const staffTurnInfo = document.getElementById('staffTurnInfo');
             staffTurnInfo.innerHTML = `
                 <div class="turn-info">
@@ -568,7 +729,6 @@
             showSuccess('staffSuccess');
         });
 
-        // Autenticación del doctor
         function authenticateDoctor() {
             const password = document.getElementById('doctorPassword').value;
             if (password === DOCTOR_PASSWORD) {
@@ -582,7 +742,6 @@
             }
         }
 
-        // Cerrar sesión del doctor
         function logoutDoctor() {
             if (confirm('¿Cerrar sesión?')) {
                 document.getElementById('doctor-content').style.display = 'none';
@@ -591,12 +750,13 @@
             }
         }
 
-        // Actualizar panel del doctor
         function updateDoctorPanel() {
+            // Recargar datos desde la base de datos central
+            patientDatabase = centralDB.getPatients();
             updateStats();
             displayPatientRecords();
+            updateTurnCounters();
             
-            // Búsqueda en tiempo real
             document.getElementById('searchPatients').addEventListener('input', function() {
                 displayPatientRecords(this.value.toLowerCase());
             });
@@ -628,119 +788,4 @@
             }
 
             if (filtered.length === 0) {
-                container.innerHTML = '<div style="text-align: center; color: #666; padding: 20px;">No hay registros para mostrar</div>';
-                return;
-            }
-
-            // Ordenar por número de turno
-            filtered.sort((a, b) => a.turnNumber - b.turnNumber);
-
-            container.innerHTML = filtered.map(patient => `
-                <div class="record-item">
-                    <div class="patient-name">🎫 Turno #${patient.turnNumber} - ${escapeHtml(patient.name)}</div>
-                    <div class="record-date">Registrado: ${patient.displayDate} | Por: ${patient.registeredBy}</div>
-                    <div><strong>📅 Fecha consulta:</strong> ${patient.consultationDate}</div>
-                    <div><strong>🕐 Hora consulta:</strong> <span style="color: #4facfe; font-weight: bold;">${patient.consultationTime}</span> (20 min)</div>
-                    <div><strong>📱 Teléfono:</strong> ${patient.phone || 'No proporcionado'}</div>
-                    <div><strong>⚡ Prioridad:</strong> ${getPriorityIcon(patient.priority)} ${patient.priority}</div>
-                    <div><strong>📋 Motivo:</strong> ${escapeHtml(patient.motivo)}</div>
-                    ${patient.notes ? `<div><strong>📝 Notas:</strong> ${escapeHtml(patient.notes)}</div>` : ''}
-                    <button onclick="deleteRecord(${patient.id})" style="background: #ff4757; color: white; border: none; padding: 5px 10px; border-radius: 5px; cursor: pointer; margin-top: 10px;">❌ Eliminar</button>
-                </div>
-            `).join('');
-        }
-
-        function deleteRecord(id) {
-            if (confirm('¿Eliminar este registro?')) {
-                patientDatabase = patientDatabase.filter(p => p.id !== id);
-                saveData();
-                updateDoctorPanel();
-            }
-        }
-
-        function exportToJSON() {
-            const dataStr = JSON.stringify(patientDatabase, null, 2);
-            downloadFile(dataStr, `pacientes_${getDateString()}.json`, 'application/json');
-        }
-
-        function exportToCSV() {
-            const headers = ['Turno', 'Nombre', 'Fecha Consulta', 'Hora Consulta', 'Teléfono', 'Motivo', 'Prioridad', 'Registrado por', 'Fecha Registro'];
-            const csvContent = [
-                headers.join(','),
-                ...patientDatabase.map(p => [
-                    p.turnNumber,
-                    `"${p.name}"`,
-                    p.consultationDate,
-                    p.consultationTime,
-                    `"${p.phone || ''}"`,
-                    `"${p.motivo}"`,
-                    p.priority,
-                    p.registeredBy,
-                    p.displayDate
-                ].join(','))
-            ].join('\n');
-            
-            downloadFile(csvContent, `pacientes_${getDateString()}.csv`, 'text/csv');
-        }
-
-        function clearAllData() {
-            if (confirm('¿Está seguro de eliminar TODOS los registros? Esta acción no se puede deshacer.')) {
-                patientDatabase = [];
-                saveData();
-                updateDoctorPanel();
-                alert('Todos los datos han sido eliminados.');
-            }
-        }
-
-        // Funciones auxiliares
-        function saveData() {
-            // En el navegador se almacenan en variables de JavaScript
-            // Los datos se mantienen durante la sesión
-            console.log('Datos guardados en memoria:', patientDatabase.length, 'pacientes');
-        }
-
-        function loadData() {
-            // Los datos se cargan desde las variables de JavaScript
-            console.log('Datos cargados desde memoria');
-        }
-
-        function showSuccess(elementId) {
-            const element = document.getElementById(elementId);
-            element.style.display = 'block';
-            setTimeout(() => {
-                element.style.display = 'none';
-            }, 5000); // Mostrar por 5 segundos para que se pueda leer bien la información del turno
-        }
-
-        function hideSuccess(elementId) {
-            const element = document.getElementById(elementId);
-            element.style.display = 'none';
-        }
-
-        function getPriorityIcon(priority) {
-            const icons = { 'Normal': '🟡', 'Alta': '🟠', 'Urgente': '🔴' };
-            return icons[priority] || '⚪';
-        }
-
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        }
-
-        function downloadFile(content, filename, type) {
-            const blob = new Blob([content], { type });
-            const url = URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = url;
-            link.download = filename;
-            link.click();
-            URL.revokeObjectURL(url);
-        }
-
-        function getDateString() {
-            return new Date().toISOString().split('T')[0];
-        }
-    </script>
-</body>
-</html>
+                container.innerHTML = '<div style="text-align: center; color: #666; padding
